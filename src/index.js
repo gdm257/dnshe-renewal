@@ -1,0 +1,161 @@
+const https = require("https");
+
+const API_BASE = "https://api005.dnshe.com";
+
+function parseAccounts() {
+  const accountsJson = process.env.ACCOUNTS;
+  if (!accountsJson) {
+    throw new Error("ACCOUNTS environment variable is required");
+  }
+  try {
+    return JSON.parse(accountsJson);
+  } catch (error) {
+    throw new Error(`Failed to parse ACCOUNTS JSON: ${error.message}`);
+  }
+}
+
+function makeApiRequest(url, apiKey, apiSecret) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      headers: {
+        "X-API-Key": apiKey,
+        "X-API-Secret": apiSecret,
+      },
+    };
+
+    https
+      .get(url, options, (res) => {
+        let data = "";
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+        res.on("end", () => {
+          try {
+            const jsonData = JSON.parse(data);
+            resolve(jsonData);
+          } catch (error) {
+            reject(new Error(`Failed to parse API response: ${error.message}`));
+          }
+        });
+      })
+      .on("error", reject);
+  });
+}
+
+async function getDomains(apiKey, apiSecret) {
+  const url = `${API_BASE}/index.php?m=domain_hub&endpoint=dns_records&action=list`;
+  const response = await makeApiRequest(url, apiKey, apiSecret);
+
+  if (!response.success) {
+    throw new Error("Failed to retrieve domains");
+  }
+
+  return response.subdomains || [];
+}
+
+function isDomainExpiringSoon(domain) {
+  if (!domain.expires_at) return false;
+
+  const expiresDate = new Date(domain.expires_at);
+  const now = new Date();
+  const daysUntilExpiry = Math.ceil((expiresDate - now) / (1000 * 60 * 60 * 24));
+
+  return daysUntilExpiry <= 180 && daysUntilExpiry > 0;
+}
+
+async function renewDomain(apiKey, apiSecret, subdomainId) {
+  const url = `${API_BASE}/index.php?m=domain_hub&endpoint=dns_records&action=list&subdomain_id=${subdomainId}`;
+  const response = await makeApiRequest(url, apiKey, apiSecret);
+
+  if (!response.success) {
+    throw new Error(
+      `Failed to renew domain ${subdomainId}: ${response.message || "Unknown error"}`,
+    );
+  }
+
+  return response;
+}
+
+function setOutput(name, value) {
+  const outputFile = process.env.GITHUB_OUTPUT;
+  if (outputFile) {
+    const fs = require("fs");
+    fs.appendFileSync(outputFile, `${name}=${value}\n`);
+  } else {
+    console.log(`::set-output name=${name}::${value}`);
+  }
+}
+
+async function main() {
+  try {
+    const accounts = parseAccounts();
+    const renewedDomains = [];
+    const failedDomains = [];
+    const skippedDomains = [];
+
+    console.log(`\nProcessing ${accounts.length} account(s)...\n`);
+
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i];
+      console.log(`\n[${i + 1}/${accounts.length}] Processing account...`);
+
+      try {
+        const domains = await getDomains(account.api_key, account.api_secret);
+        console.log(`  Found ${domains.length} domain(s)`);
+
+        for (const domain of domains) {
+          console.log(`  - ${domain.subdomain} (ID: ${domain.id}, Expires: ${domain.expires_at})`);
+
+          if (isDomainExpiringSoon(domain)) {
+            console.log(`    → Renewing domain ${domain.subdomain}...`);
+
+            try {
+              const renewalResult = await renewDomain(
+                account.api_key,
+                account.api_secret,
+                domain.id,
+              );
+
+              renewedDomains.push(domain.subdomain);
+
+              console.log(
+                `    ✓ Renewed successfully. New expiry: ${renewalResult.new_expires_at}`,
+              );
+            } catch (error) {
+              console.log(`    ✗ Failed: ${error.message}`);
+              failedDomains.push(domain.subdomain);
+            }
+          } else {
+            console.log(`    → Skipping (not expiring within 180 days)`);
+            skippedDomains.push(domain.subdomain);
+          }
+        }
+      } catch (error) {
+        console.log(`  ✗ Failed to process account: ${error.message}`);
+      }
+    }
+
+    console.log(`\n=== Summary ===`);
+
+    if (renewedDomains.length > 0) {
+      console.log(`✓ Renewed: ${renewedDomains.join(", ")}`);
+    }
+    if (failedDomains.length > 0) {
+      console.log(`✗ Failed: ${failedDomains.join(", ")}`);
+    }
+    if (skippedDomains.length > 0) {
+      console.log(`→ Skipped: ${skippedDomains.join(", ")}`);
+    }
+
+    setOutput("renewed-domains", renewedDomains.join(", "));
+    setOutput("failed-domains", failedDomains.join(", "));
+    setOutput("skipped-domains", skippedDomains.join(", "));
+
+    console.log("\n✅ Renewal process completed");
+  } catch (error) {
+    console.error(`\n❌ Error: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+main();

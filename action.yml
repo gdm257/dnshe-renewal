@@ -1,0 +1,37 @@
+name: "DNSHE Free Domain Renewal"
+description: "Automatically renew DNSHE free domains before expiration"
+author: "github"
+
+inputs:
+  accounts:
+    description: 'JSON array of accounts with api_key and api_secret. Example: [{"api_key":"key1","api_secret":"secret1"},{"api_key":"key2","api_secret":"secret2"}]'
+    required: true
+
+outputs:
+  renewed-domains:
+    description: "Comma-separated list of successfully renewed domains"
+    value: ${{ steps.renewal.outputs.renewed-domains }}
+
+  failed-domains:
+    description: "Comma-separated list of failed domains"
+    value: ${{ steps.renewal.outputs.failed-domains }}
+
+  skipped-domains:
+    description: "Comma-separated list of skipped domains (not expiring within 180 days)"
+    value: ${{ steps.renewal.outputs.skipped-domains }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Run renewal script
+      id: renewal
+      shell: bash
+      run: |
+        node ${{ github.action_path }}/src/index.js
+      env:
+        ACCOUNTS: ${{ inputs.accounts }}
