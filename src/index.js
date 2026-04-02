@@ -184,6 +184,11 @@ async function main() {
     setOutput("failed-domains", failedDomains.join(", "));
     setOutput("skipped-domains", skippedDomains.join(", "));
 
+    if (failedDomains.length > 0) {
+      console.error(`\n❌ ${failedDomains.length} domain(s) failed to renew`);
+      process.exit(1);
+    }
+
     console.log("\n✅ Renewal process completed");
   } catch (error) {
     console.error(`\n❌ Error: ${error.message}`);
