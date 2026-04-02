@@ -85,6 +85,9 @@ async function renewDomain(apiKey, apiSecret, subdomainId) {
   });
 
   if (!response.success) {
+    if (response.error_code === "renewal_not_yet_available") {
+      return { skipped: true, ...response };
+    }
     throw new Error(
       `Failed to renew domain ${subdomainId}: ${response.message || "Unknown error"}`,
     );
@@ -142,11 +145,18 @@ async function main() {
                 domain.id,
               );
 
-              renewedDomains.push(domain.subdomain);
+              if (renewalResult.skipped) {
+                console.log(
+                  `    → Skipping (not in renewal window)`,
+                );
+                skippedDomains.push(domain.subdomain);
+              } else {
+                renewedDomains.push(domain.subdomain);
 
-              console.log(
-                `    ✓ Renewed successfully. New expiry: ${renewalResult.new_expires_at}`,
-              );
+                console.log(
+                  `    ✓ Renewed successfully. New expiry: ${renewalResult.new_expires_at}`,
+                );
+              }
             } catch (error) {
               console.log(`    ✗ Failed: ${error.message}`);
               failedDomains.push(domain.subdomain);
