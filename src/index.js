@@ -104,11 +104,20 @@ async function main() {
         console.log(`  Found ${domains.length} domain(s)`);
 
         for (const domain of domains) {
-          console.log(`  - ${domain.subdomain} (ID: ${domain.id}, Expires: ${domain.expires_at})`);
+          console.log(
+            `  - ${domain.subdomain} (ID: ${domain.id}, Expires: ${domain.expires_at || "unknown"})`,
+          );
 
-          if (isDomainExpiringSoon(domain)) {
-            console.log(`    → Renewing domain ${domain.subdomain}...`);
+          if (domain.expires_at && !isDomainExpiringSoon(domain)) {
+            console.log(`    → Skipping (not expiring within 180 days)`);
+            skippedDomains.push(domain.subdomain);
+          } else if (domain.expires_at && isDomainExpiringSoon(domain)) {
+            console.log(`    → Renewing (expires within 180 days)...`);
+          } else {
+            console.log(`    → Renewing (no expires_at, let API decide)...`);
+          }
 
+          if (!domain.expires_at || isDomainExpiringSoon(domain)) {
             try {
               const renewalResult = await renewDomain(
                 account.api_key,
@@ -125,9 +134,6 @@ async function main() {
               console.log(`    ✗ Failed: ${error.message}`);
               failedDomains.push(domain.subdomain);
             }
-          } else {
-            console.log(`    → Skipping (not expiring within 180 days)`);
-            skippedDomains.push(domain.subdomain);
           }
         }
       } catch (error) {
