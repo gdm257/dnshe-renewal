@@ -78,16 +78,6 @@ async function getDomains(apiKey, apiSecret) {
   return response.subdomains || [];
 }
 
-function isDomainExpiringSoon(domain) {
-  if (!domain.expires_at) return false;
-
-  const expiresDate = new Date(domain.expires_at);
-  const now = new Date();
-  const daysUntilExpiry = Math.ceil((expiresDate - now) / (1000 * 60 * 60 * 24));
-
-  return daysUntilExpiry <= 180 && daysUntilExpiry > 0;
-}
-
 async function renewDomain(apiKey, apiSecret, subdomainId) {
   const url = `${API_BASE}/index.php?m=domain_hub&endpoint=subdomains&action=renew`;
   const response = await makeApiRequest(url, apiKey, apiSecret, {
@@ -135,20 +125,10 @@ async function main() {
 
         for (const domain of domains) {
           console.log(
-            `  - ${domain.subdomain} (ID: ${domain.id}, Expires: ${domain.expires_at || "unknown"})`,
+            `  - ${domain.subdomain} (ID: ${domain.id})`,
           );
 
-          if (domain.expires_at && !isDomainExpiringSoon(domain)) {
-            console.log(`    → Skipping (not expiring within 180 days)`);
-            skippedDomains.push(domain.subdomain);
-          } else if (domain.expires_at && isDomainExpiringSoon(domain)) {
-            console.log(`    → Renewing (expires within 180 days)...`);
-          } else {
-            console.log(`    → Renewing (no expires_at, let API decide)...`);
-          }
-
-          if (!domain.expires_at || isDomainExpiringSoon(domain)) {
-            try {
+          try {
               const renewalResult = await renewDomain(
                 account.api_key,
                 account.api_secret,
@@ -168,7 +148,6 @@ async function main() {
               console.log(`    ✗ Failed: ${error.message}`);
               failedDomains.push(domain.subdomain);
             }
-          }
         }
       } catch (error) {
         console.log(`  ✗ Failed to process account: ${error.message}`);
