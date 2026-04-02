@@ -14,7 +14,7 @@ function parseAccounts() {
   }
 }
 
-function makeApiRequest(url, apiKey, apiSecret, body) {
+function request(url, apiKey, apiSecret, body) {
   return new Promise((resolve, reject) => {
     const isPost = !!body;
     const postData = body ? JSON.stringify(body) : null;
@@ -34,13 +34,10 @@ function makeApiRequest(url, apiKey, apiSecret, body) {
 
     const req = https.request(url, options, (res) => {
       let data = "";
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
+      res.on("data", (chunk) => (data += chunk));
       res.on("end", () => {
         try {
-          const jsonData = JSON.parse(data);
-          resolve(jsonData);
+          resolve(JSON.parse(data));
         } catch (error) {
           reject(new Error(`Failed to parse API response: ${error.message}`));
         }
@@ -49,10 +46,7 @@ function makeApiRequest(url, apiKey, apiSecret, body) {
 
     req.on("error", reject);
 
-    if (isPost) {
-      req.write(postData);
-    }
-
+    if (isPost) req.write(postData);
     req.end();
   });
 }
@@ -60,8 +54,7 @@ function makeApiRequest(url, apiKey, apiSecret, body) {
 async function makeApiRequest(url, apiKey, apiSecret, body, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const result = await _request(url, apiKey, apiSecret, body);
-      return result;
+      return await request(url, apiKey, apiSecret, body);
     } catch (error) {
       if (attempt < retries) {
         const delay = Math.pow(2, attempt) * 1000;
@@ -74,48 +67,8 @@ async function makeApiRequest(url, apiKey, apiSecret, body, retries = 3) {
   }
 }
 
-function _request(url, apiKey, apiSecret, body) {
-  return new Promise((resolve, reject) => {
-    const isPost = !!body;
-    const postData = body ? JSON.stringify(body) : null;
-
-    const options = {
-      method: isPost ? "POST" : "GET",
-      headers: {
-        "X-API-Key": apiKey,
-        "X-API-Secret": apiSecret,
-      },
-    };
-
-    if (isPost) {
-      options.headers["Content-Type"] = "application/json";
-      options.headers["Content-Length"] = Buffer.byteLength(postData);
-    }
-
-    const req = https.request(url, options, (res) => {
-      let data = "";
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-      res.on("end", () => {
-        try {
-          const jsonData = JSON.parse(data);
-          resolve(jsonData);
-        } catch (error) {
-          reject(new Error(`Failed to parse API response: ${error.message}`));
-        }
-      });
-    });
-
-    req.on("error", reject);
-
-    if (isPost) {
-      req.write(postData);
-    }
-
-    req.end();
-  });
-}
+async function getDomains(apiKey, apiSecret) {
+  const url = `${API_BASE}/index.php?m=domain_hub&endpoint=subdomains&action=list`;
   const response = await makeApiRequest(url, apiKey, apiSecret);
 
   if (!response.success) {
@@ -203,13 +156,10 @@ async function main() {
               );
 
               if (renewalResult.skipped) {
-                console.log(
-                  `    → Skipping (not in renewal window)`,
-                );
+                console.log(`    → Skipping (not in renewal window)`);
                 skippedDomains.push(domain.subdomain);
               } else {
                 renewedDomains.push(domain.subdomain);
-
                 console.log(
                   `    ✓ Renewed successfully. New expiry: ${renewalResult.new_expires_at}`,
                 );
