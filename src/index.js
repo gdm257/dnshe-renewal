@@ -57,8 +57,65 @@ function makeApiRequest(url, apiKey, apiSecret, body) {
   });
 }
 
-async function getDomains(apiKey, apiSecret) {
-  const url = `${API_BASE}/index.php?m=domain_hub&endpoint=subdomains&action=list`;
+async function makeApiRequest(url, apiKey, apiSecret, body, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const result = await _request(url, apiKey, apiSecret, body);
+      return result;
+    } catch (error) {
+      if (attempt < retries) {
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`    ⚠ Request failed (attempt ${attempt}/${retries}), retrying in ${delay / 1000}s...`);
+        await new Promise((r) => setTimeout(r, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
+function _request(url, apiKey, apiSecret, body) {
+  return new Promise((resolve, reject) => {
+    const isPost = !!body;
+    const postData = body ? JSON.stringify(body) : null;
+
+    const options = {
+      method: isPost ? "POST" : "GET",
+      headers: {
+        "X-API-Key": apiKey,
+        "X-API-Secret": apiSecret,
+      },
+    };
+
+    if (isPost) {
+      options.headers["Content-Type"] = "application/json";
+      options.headers["Content-Length"] = Buffer.byteLength(postData);
+    }
+
+    const req = https.request(url, options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => {
+        data += chunk;
+      });
+      res.on("end", () => {
+        try {
+          const jsonData = JSON.parse(data);
+          resolve(jsonData);
+        } catch (error) {
+          reject(new Error(`Failed to parse API response: ${error.message}`));
+        }
+      });
+    });
+
+    req.on("error", reject);
+
+    if (isPost) {
+      req.write(postData);
+    }
+
+    req.end();
+  });
+}
   const response = await makeApiRequest(url, apiKey, apiSecret);
 
   if (!response.success) {
