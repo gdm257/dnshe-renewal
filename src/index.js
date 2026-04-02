@@ -14,36 +14,51 @@ function parseAccounts() {
   }
 }
 
-function makeApiRequest(url, apiKey, apiSecret) {
+function makeApiRequest(url, apiKey, apiSecret, body) {
   return new Promise((resolve, reject) => {
+    const isPost = !!body;
+    const postData = body ? JSON.stringify(body) : null;
+
     const options = {
+      method: isPost ? "POST" : "GET",
       headers: {
         "X-API-Key": apiKey,
         "X-API-Secret": apiSecret,
       },
     };
 
-    https
-      .get(url, options, (res) => {
-        let data = "";
-        res.on("data", (chunk) => {
-          data += chunk;
-        });
-        res.on("end", () => {
-          try {
-            const jsonData = JSON.parse(data);
-            resolve(jsonData);
-          } catch (error) {
-            reject(new Error(`Failed to parse API response: ${error.message}`));
-          }
-        });
-      })
-      .on("error", reject);
+    if (isPost) {
+      options.headers["Content-Type"] = "application/json";
+      options.headers["Content-Length"] = Buffer.byteLength(postData);
+    }
+
+    const req = https.request(url, options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => {
+        data += chunk;
+      });
+      res.on("end", () => {
+        try {
+          const jsonData = JSON.parse(data);
+          resolve(jsonData);
+        } catch (error) {
+          reject(new Error(`Failed to parse API response: ${error.message}`));
+        }
+      });
+    });
+
+    req.on("error", reject);
+
+    if (isPost) {
+      req.write(postData);
+    }
+
+    req.end();
   });
 }
 
 async function getDomains(apiKey, apiSecret) {
-  const url = `${API_BASE}/index.php?m=domain_hub&endpoint=dns_records&action=list`;
+  const url = `${API_BASE}/index.php?m=domain_hub&endpoint=subdomains&action=list`;
   const response = await makeApiRequest(url, apiKey, apiSecret);
 
   if (!response.success) {
@@ -64,8 +79,10 @@ function isDomainExpiringSoon(domain) {
 }
 
 async function renewDomain(apiKey, apiSecret, subdomainId) {
-  const url = `${API_BASE}/index.php?m=domain_hub&endpoint=dns_records&action=list&subdomain_id=${subdomainId}`;
-  const response = await makeApiRequest(url, apiKey, apiSecret);
+  const url = `${API_BASE}/index.php?m=domain_hub&endpoint=subdomains&action=renew`;
+  const response = await makeApiRequest(url, apiKey, apiSecret, {
+    subdomain_id: subdomainId,
+  });
 
   if (!response.success) {
     throw new Error(
